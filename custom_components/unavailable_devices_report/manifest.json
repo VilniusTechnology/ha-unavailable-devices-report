@@ -1,0 +1,14 @@
+{
+  "domain": "ha_unavailable_devices_report",
+  "name": "HA Unavailable Devices Report",
+  "codeowners": [
+    "@VilniusTechnology"
+  ],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/VilniusTechnology/ha-unavailable-devices-report",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/VilniusTechnology/ha-unavailable-devices-report/issues",
+  "requirements": [],
+  "version": "1.0.0"
+}
