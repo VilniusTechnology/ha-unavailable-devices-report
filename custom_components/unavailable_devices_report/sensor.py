@@ -366,7 +366,7 @@ class UnavailableDevicesSensor(SensorEntity):
                     else:
                         res += f"- {ent_info['entity']} _({ent_info['duration']})_\n"
                 res += "\n"
-
+                
             return res.strip()
 
         def format_devices_only(unavail_devs, unknown_devs):
