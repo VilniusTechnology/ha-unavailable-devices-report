@@ -5,6 +5,8 @@
 
 [![Validate HACS](https://github.com/VilniusTechnology/ha-unavailable-devices-report/actions/workflows/validate.yaml/badge.svg)](https://github.com/VilniusTechnology/ha-unavailable-devices-report/actions/workflows/validate.yaml)
 
+<a href="https://buymeacoffee.com/vilnius.technology" target="_blank"><img src="https://img.shields.io/badge/donate-%E2%98%95buy_me_a_coffee-yellow.svg?style=for-the-badge" alt="Buy Me A Coffee"></a>
+
 A custom component that provides a sensor reporting all unavailable or unknown entities in Home Assistant, grouped by device.
 
 ## Features
