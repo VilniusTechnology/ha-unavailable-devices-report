@@ -15,7 +15,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.util import dt as dt_util
 from homeassistant.helpers.event import async_track_time_interval
 
-from .const import DOMAIN, CONF_EXCLUDED_DEVICES, CONF_EXCLUDED_ENTITIES, CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
+from .const import DOMAIN, CONF_EXCLUDED_DEVICES, CONF_EXCLUDED_ENTITIES, CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL, CONF_IGNORE_UNKNOWN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -164,9 +164,17 @@ class UnavailableDevicesSensor(SensorEntity):
         
         unavailable_items = []
         
+        # Check ignore_unknown option
+        ignore_unknown = False
+        if self._config_entry:
+            ignore_unknown = self._config_entry.options.get(CONF_IGNORE_UNKNOWN, False)
+
         # Iterate over all states
         for state in self.hass.states.async_all():
             if state.state in ["unavailable", "unknown"]:
+                if state.state == "unknown" and ignore_unknown:
+                     continue
+
                 entity_id = state.entity_id
 
                 # Check entity registry
@@ -187,21 +195,25 @@ class UnavailableDevicesSensor(SensorEntity):
                     if device_entry:
                         device_name = device_entry.name_by_user or device_entry.name
                 
+                is_reg = False
+                if entity_entry:
+                    # Only consider registered if not hidden and not disabled
+                    if not entity_entry.hidden_by and not entity_entry.disabled_by:
+                        is_reg = True
+
                 unavailable_items.append({
                     "entity": entity_id,
                     "state": state.state,
                     "device_id": device_id,
                     "device_name": device_name,
-                    "duration": self._get_duration_string(state.last_changed)
+                    "duration": self._get_duration_string(state.last_changed),
+                    "is_registered": is_reg
                 })
         
         _LOGGER.debug(f"Found {len(unavailable_items)} total unavailable items/entities")
         _LOGGER.debug(f"Unavailable items details: {unavailable_items}")
 
         # Process Report
-        devices = {}         # { device_id: {name, duration} }
-        standalone = []      # [{entity_id, duration}, ...]
-        
         # 1. Collect Valid Candidates
         candidate_items = [] 
         candidate_device_ids = set()
@@ -237,16 +249,19 @@ class UnavailableDevicesSensor(SensorEntity):
                     candidate_device_info[device_id] = {"name": device_name, "duration": duration}
                 candidate_items.append(item)
             else:
-                standalone.append({"entity": entity, "duration": duration})
+                standalone.append({"entity": entity, "duration": duration, "is_registered": item.get("is_registered", False)})
         
         # 2. Identify Full Device Failures
         full_failure_device_ids = set()
+        unavailable_devices = {} # { device_id: {name, duration} }
+        unknown_devices = {}     # { device_id: {name, duration} }
         
         for device_id in candidate_device_ids:
             # Get all entities for this device
             device_entries = er.async_entries_for_device(ent_reg, device_id)
             total_entities = 0
-            unavailable_entities_count = 0
+            unavailable_count = 0
+            unknown_count = 0
             
             for entry in device_entries:
                 if entry.disabled_by:
@@ -259,70 +274,152 @@ class UnavailableDevicesSensor(SensorEntity):
                 total_entities += 1
                 state = self.hass.states.get(entry.entity_id)
                 # If state exists and is unavailable/unknown
-                if state and state.state in ["unavailable", "unknown"]:
-                    unavailable_entities_count += 1
+                if state:
+                    if state.state == "unavailable":
+                        unavailable_count += 1
+                    elif state.state == "unknown":
+                        unknown_count += 1
             
-            if total_entities > 0 and unavailable_entities_count == total_entities:
-                 # Full Device Failure
+            # Full failure if all entities are either unavailable or unknown
+            if total_entities > 0 and (unavailable_count + unknown_count) == total_entities:
                  full_failure_device_ids.add(device_id)
-                 devices[device_id] = candidate_device_info[device_id]
+                 
+                 # If ANY entity is truly unavailable, mark device as Unavailable (higher severity)
+                 # Otherwise (all unknown), mark as Unknown
+                 if unavailable_count > 0:
+                    unavailable_devices[device_id] = candidate_device_info[device_id]
+                 else:
+                    unknown_devices[device_id] = candidate_device_info[device_id]
+                 
                  count += 1
             else:
-                # Partial Device Failure - Device is technically "alive"
-                _LOGGER.debug(f"Device {candidate_device_info[device_id]['name']} is partially active ({unavailable_entities_count}/{total_entities} unavailable).")
+                # Partial Device Failure
+                _LOGGER.debug(f"Device {candidate_device_info[device_id]['name']} is partially active.")
 
         # 3. Process Items based on Device Status
+        standalone_unavailable = []
+        standalone_unknown = []
+
         for item in candidate_items:
             device_id = item['device_id']
             if device_id in full_failure_device_ids:
                 continue # Already reported as a Device
             
             # If device is NOT fully unavailable, report the entity separately
-            standalone.append({"entity": item['entity'], "duration": item['duration']})
+            data = {
+                "entity": item['entity'], 
+                "duration": item['duration'], 
+                "is_registered": item.get("is_registered", False)
+            }
+            
+            if item['state'] == "unavailable":
+                standalone_unavailable.append(data)
+            else:
+                standalone_unknown.append(data)
 
-        count += len(standalone)
+        count += len(standalone_unavailable) + len(standalone_unknown)
 
         # Format Markdown Reports
-        def format_markdown(devs, items):
-            if not devs and not items:
+        def format_markdown(unavail_devs, unknown_devs, unavail_ents, unknown_ents):
+            if not unavail_devs and not unknown_devs and not unavail_ents and not unknown_ents:
                 return "✅ **All systems operational.** No unavailable devices."
             
             res = ""
-            if devs:
+            
+            # 1. Unavailable Devices
+            if unavail_devs:
                 res += "**📱 Unavailable Devices**\n"
                 sorted_devs = sorted(
-                    [(d_id, d_info) for d_id, d_info in devs.items() if d_info["name"] is not None], 
+                    [(d_id, d_info) for d_id, d_info in unavail_devs.items() if d_info["name"] is not None], 
                     key=lambda x: x[1]["name"]
                 )
                 for d_id, d_info in sorted_devs:
                     res += f"- [{d_info['name']}](/config/devices/device/{d_id}) _({d_info['duration']})_\n"
                 res += "\n"
 
-            if items:
-                res += "**👻 Standalone Entities**\n"
-                for ent_info in sorted(items, key=lambda x: x["entity"]):
-                    res += f"- [{ent_info['entity']}](/config/entities/entity/{ent_info['entity']}) _({ent_info['duration']})_\n"
+            # 2. Unknown Devices
+            if unknown_devs:
+                res += "**📱 Unknown Devices**\n"
+                sorted_devs = sorted(
+                    [(d_id, d_info) for d_id, d_info in unknown_devs.items() if d_info["name"] is not None], 
+                    key=lambda x: x[1]["name"]
+                )
+                for d_id, d_info in sorted_devs:
+                    res += f"- [{d_info['name']}](/config/devices/device/{d_id}) _({d_info['duration']})_\n"
                 res += "\n"
+
+            # 3. Unavailable Entities
+            if unavail_ents:
+                res += "**👻 Standalone Entities**\n"
+                for ent_info in sorted(unavail_ents, key=lambda x: x["entity"]):
+                    if ent_info.get("is_registered", False):
+                        res += f"- [{ent_info['entity']}](/config/entities/entity/{ent_info['entity']}) _({ent_info['duration']})_\n"
+                    else:
+                        res += f"- {ent_info['entity']} _({ent_info['duration']})_\n"
+                res += "\n"
+
+            # 4. Unknown Entities
+            if unknown_ents:
+                res += "**👻 Unknown Entities**\n"
+                for ent_info in sorted(unknown_ents, key=lambda x: x["entity"]):
+                    if ent_info.get("is_registered", False):
+                        res += f"- [{ent_info['entity']}](/config/entities/entity/{ent_info['entity']}) _({ent_info['duration']})_\n"
+                    else:
+                        res += f"- {ent_info['entity']} _({ent_info['duration']})_\n"
+                res += "\n"
+
             return res.strip()
 
-        def format_devices_only(devs):
-            if not devs:
+        def format_devices_only(unavail_devs, unknown_devs):
+            if not unavail_devs and not unknown_devs:
                 return "✅ No unavailable devices."
-            res = "**📱 Unavailable Devices**\n"
-            sorted_devs = sorted(
-                [(d_id, d_info) for d_id, d_info in devs.items() if d_info["name"] is not None], 
-                key=lambda x: x[1]["name"]
-            )
-            for d_id, d_info in sorted_devs:
-                res += f"- [{d_info['name']}](/config/devices/device/{d_id}) _({d_info['duration']})_\n"
+            res = ""
+            
+            if unavail_devs:
+                res += "**📱 Unavailable Devices**\n"
+                sorted_devs = sorted(
+                    [(d_id, d_info) for d_id, d_info in unavail_devs.items() if d_info["name"] is not None], 
+                    key=lambda x: x[1]["name"]
+                )
+                for d_id, d_info in sorted_devs:
+                    res += f"- [{d_info['name']}](/config/devices/device/{d_id}) _({d_info['duration']})_\n"
+                res += "\n"
+                
+            if unknown_devs:
+                res += "**📱 Unknown Devices**\n"
+                sorted_devs = sorted(
+                    [(d_id, d_info) for d_id, d_info in unknown_devs.items() if d_info["name"] is not None], 
+                    key=lambda x: x[1]["name"]
+                )
+                for d_id, d_info in sorted_devs:
+                    res += f"- [{d_info['name']}](/config/devices/device/{d_id}) _({d_info['duration']})_\n"
+                res += "\n"
+                
             return res.strip()
 
-        def format_entities_only(items):
-            if not items:
+        def format_entities_only(unavail_ents, unknown_ents):
+            if not unavail_ents and not unknown_ents:
                 return "✅ No standalone unavailable entities."
-            res = "**👻 Standalone Entities**\n"
-            for ent_info in sorted(items, key=lambda x: x["entity"]):
-                res += f"- [{ent_info['entity']}](/config/entities/entity/{ent_info['entity']}) _({ent_info['duration']})_\n"
+            res = ""
+            
+            if unavail_ents:
+                res += "**👻 Standalone Entities**\n"
+                for ent_info in sorted(unavail_ents, key=lambda x: x["entity"]):
+                    if ent_info.get("is_registered", False):
+                        res += f"- [{ent_info['entity']}](/config/entities/entity/{ent_info['entity']}) _({ent_info['duration']})_\n"
+                    else:
+                        res += f"- {ent_info['entity']} _({ent_info['duration']})_\n"
+                res += "\n"
+                
+            if unknown_ents:
+                res += "**👻 Unknown Entities**\n"
+                for ent_info in sorted(unknown_ents, key=lambda x: x["entity"]):
+                    if ent_info.get("is_registered", False):
+                        res += f"- [{ent_info['entity']}](/config/entities/entity/{ent_info['entity']}) _({ent_info['duration']})_\n"
+                    else:
+                        res += f"- {ent_info['entity']} _({ent_info['duration']})_\n"
+                res += "\n"
+                
             return res.strip()
 
         # Resolve excluded names for attributes
@@ -337,12 +434,15 @@ class UnavailableDevicesSensor(SensorEntity):
         self._attr_native_value = count
         self._attr_extra_state_attributes = {
             "count": count,
-            # "report_summary": format_markdown(devices, standalone), # REMOVED to save DB space
-            "devices_report": format_devices_only(devices),
-            "entities_report": format_entities_only(standalone),
-            "unavailable_devices": [{"device_id": k, "name": v["name"], "duration": v["duration"]} for k, v in devices.items()],
-            "unavailable_entities": standalone,
-            "unavailable_entity_ids": [ent["entity"] for ent in standalone], # Flat list for automation
+            # "report_summary": format_markdown(...), # REMOVED
+            "devices_report": format_devices_only(unavailable_devices, unknown_devices),
+            "entities_report": format_entities_only(standalone_unavailable, standalone_unknown),
+            "unavailable_devices": [{"device_id": k, "name": v["name"], "duration": v["duration"]} for k, v in unavailable_devices.items()],
+            "unknown_devices": [{"device_id": k, "name": v["name"], "duration": v["duration"]} for k, v in unknown_devices.items()],
+            "unavailable_entities": standalone_unavailable,
+            "unknown_entities": standalone_unknown,
+            "unavailable_entity_ids": [ent["entity"] for ent in standalone_unavailable], 
+            "unknown_entity_ids": [ent["entity"] for ent in standalone_unknown],
             "excluded_devices": excluded_device_names,
             "excluded_entities": excluded_ent_ids,
         }
@@ -408,10 +508,22 @@ class UnavailableDevicesSensor(SensorEntity):
         if len(devs) > limit:
             self._attr_extra_state_attributes["unavailable_devices"] = devs[:limit]
             self._attr_extra_state_attributes["unavailable_devices_truncated"] = len(devs) - limit
+        
+        # Truncate Unknown Devices
+        uk_devs = self._attr_extra_state_attributes.get("unknown_devices", [])
+        if len(uk_devs) > limit:
+            self._attr_extra_state_attributes["unknown_devices"] = uk_devs[:limit]
+            self._attr_extra_state_attributes["unknown_devices_truncated"] = len(uk_devs) - limit
             
         if len(ents) > limit:
             self._attr_extra_state_attributes["unavailable_entities"] = ents[:limit] 
             self._attr_extra_state_attributes["unavailable_entities_truncated"] = len(ents) - limit
+            
+        # Truncate Unknown Entities
+        uk_ents = self._attr_extra_state_attributes.get("unknown_entities", [])
+        if len(uk_ents) > limit:
+            self._attr_extra_state_attributes["unknown_entities"] = uk_ents[:limit] 
+            self._attr_extra_state_attributes["unknown_entities_truncated"] = len(uk_ents) - limit
 
         # Truncate excluded lists (they can be huge)
         ex_devs = self._attr_extra_state_attributes.get("excluded_devices", [])
@@ -427,6 +539,10 @@ class UnavailableDevicesSensor(SensorEntity):
         # Truncate flat list too (generous limit)
         if len(ent_ids) > 100:
             self._attr_extra_state_attributes["unavailable_entity_ids"] = ent_ids[:100]
+            
+        uk_ent_ids = self._attr_extra_state_attributes.get("unknown_entity_ids", [])
+        if len(uk_ent_ids) > 100:
+            self._attr_extra_state_attributes["unknown_entity_ids"] = uk_ent_ids[:100]
 
         # 2. Paginate Markdown Reports
         # report_summary = self._attr_extra_state_attributes.get("report_summary", "")

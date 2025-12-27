@@ -12,7 +12,7 @@ import logging
 
 _LOGGER = logging.getLogger(__name__)
 
-from .const import DOMAIN, CONF_EXCLUDED_DEVICES, CONF_EXCLUDED_ENTITIES, CONF_LOGGING_LEVEL, CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
+from .const import DOMAIN, CONF_EXCLUDED_DEVICES, CONF_EXCLUDED_ENTITIES, CONF_LOGGING_LEVEL, CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL, CONF_IGNORE_UNKNOWN
 
 class UnavailableDevicesReportConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Unavailable Devices Report."""
@@ -99,6 +99,10 @@ class UnavailableDevicesReportOptionsFlowHandler(config_entries.OptionsFlow):
                             mode=selector.NumberSelectorMode.BOX,
                         )
                     ),
+                    vol.Optional(
+                        CONF_IGNORE_UNKNOWN,
+                        default=self._config_entry.options.get(CONF_IGNORE_UNKNOWN, False),
+                    ): selector.BooleanSelector(),
                 }
             )
         except Exception as e:
