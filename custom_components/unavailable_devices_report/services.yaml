@@ -1,0 +1,16 @@
+remove_items:
+  name: Remove Items
+  description: Permanently removes devices or entities from the Home Assistant registry. Use with caution!
+  fields:
+    entity_id:
+      name: Entities
+      description: List of entity IDs to remove.
+      selector:
+        entity:
+          multiple: true
+    device_id:
+      name: Devices
+      description: List of device IDs to remove.
+      selector:
+        device:
+          multiple: true

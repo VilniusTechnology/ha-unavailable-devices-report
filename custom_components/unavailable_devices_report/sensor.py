@@ -439,6 +439,8 @@ class UnavailableDevicesSensor(SensorEntity):
             "entities_report": format_entities_only(standalone_unavailable, standalone_unknown),
             "unavailable_devices": [{"device_id": k, "name": v["name"], "duration": v["duration"]} for k, v in unavailable_devices.items()],
             "unknown_devices": [{"device_id": k, "name": v["name"], "duration": v["duration"]} for k, v in unknown_devices.items()],
+            "unavailable_device_ids": list(unavailable_devices.keys()),
+            "unknown_device_ids": list(unknown_devices.keys()),
             "unavailable_entities": standalone_unavailable,
             "unknown_entities": standalone_unknown,
             "unavailable_entity_ids": [ent["entity"] for ent in standalone_unavailable], 

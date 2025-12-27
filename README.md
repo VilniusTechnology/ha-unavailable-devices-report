@@ -216,6 +216,65 @@ target:
   entity_id: sensor.unavailable_devices_report
 ```
 
+## Services
+
+### Remove Items (`unavailable_devices_report.remove_items`)
+Permanently removes entities or devices from the Home Assistant registry. This is useful for automated cleanup of old or broken devices.
+
+**Parameters:**
+- `entity_id`: List of entity IDs to remove.
+- `device_id`: List of device IDs to remove.
+
+**Example Automation with Confirmation:**
+This automation sends a notification to your phone and waits for you to click "Delete" before removing items.
+
+```yaml
+alias: Purge Unavailable Items
+description: "Ask for confirmation before deleting unavailable items."
+trigger:
+  - platform: state
+    entity_id: sensor.unavailable_devices_report
+    attribute: count
+    # Trigger when count changes, or run manually
+    to: null
+condition:
+  - condition: numeric_state
+    entity_id: sensor.unavailable_devices_report
+    above: 0
+action:
+  # 1. Send actionable notification
+  - service: notify.mobile_app_your_device  # CHANGE THIS to your notify service
+    data:
+      message: "Found {{ states('sensor.unavailable_devices_report') }} unavailable items. Purge them?"
+      title: "Unavailable Devices Report"
+      data:
+        actions:
+          - action: "PURGE_UNAVAILABLE_CONFIRM"
+            title: "Delete Forever"
+            destructive: true
+  
+  # 2. Wait for confirmation
+  - wait_for_trigger:
+      - platform: event
+        event_type: mobile_app_notification_action
+        event_data:
+          action: "PURGE_UNAVAILABLE_CONFIRM"
+    timeout: "00:01:00"
+    continue_on_timeout: false
+  
+  # 3. Perform removal
+  - service: unavailable_devices_report.remove_items
+    data:
+      entity_id: "{{ state_attr('sensor.unavailable_devices_report', 'unavailable_entity_ids') }}"
+      device_id: "{{ state_attr('sensor.unavailable_devices_report', 'unavailable_device_ids') }}"
+  
+  - service: notify.mobile_app_your_device
+    data:
+      message: "Purge complete."
+```
+> [!WARNING]
+> Registry removal is permanent! The above automation includes a safety check, but always double-check what is unavailable before confirming.
+
 ## Debugging
 If you need to troubleshoot why devices are not showing up or are showing up incorrectly, you can enable debug logging for this component directly in the UI:
 
