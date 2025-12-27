@@ -9,7 +9,7 @@ from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import selector
 
-from .const import DOMAIN, CONF_EXCLUDED_DEVICES, CONF_EXCLUDED_ENTITIES, CONF_LOGGING_LEVEL
+from .const import DOMAIN, CONF_EXCLUDED_DEVICES, CONF_EXCLUDED_ENTITIES, CONF_LOGGING_LEVEL, CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
 
 class UnavailableDevicesReportConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Unavailable Devices Report."""
@@ -81,6 +81,18 @@ class UnavailableDevicesReportOptionsFlowHandler(config_entries.OptionsFlow):
                         selector.SelectSelectorConfig(
                             options=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
                             mode=selector.SelectSelectorMode.DROPDOWN,
+                        )
+                    ),
+                    vol.Optional(
+                        CONF_SCAN_INTERVAL,
+                        default=self.config_entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=30,
+                            max=3600,
+                            step=10,
+                            unit_of_measurement="seconds",
+                            mode=selector.NumberSelectorMode.BOX,
                         )
                     ),
                 }

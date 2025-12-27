@@ -1,6 +1,6 @@
 import logging
 import voluptuous as vol
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import json
 import asyncio
@@ -13,8 +13,9 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.util import dt as dt_util
+from homeassistant.helpers.event import async_track_time_interval
 
-from .const import DOMAIN, CONF_EXCLUDED_DEVICES, CONF_EXCLUDED_ENTITIES
+from .const import DOMAIN, CONF_EXCLUDED_DEVICES, CONF_EXCLUDED_ENTITIES, CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -62,14 +63,29 @@ class UnavailableDevicesSensor(SensorEntity):
         
         if config_entry:
             self._attr_unique_id = f"{config_entry.entry_id}"
+            interval = config_entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
+            self._scan_interval = timedelta(seconds=interval)
         else:
             self._attr_unique_id = "unavailable_devices_report_sensor"
+            self._scan_interval = timedelta(seconds=DEFAULT_SCAN_INTERVAL)
+            
+        self._attr_should_poll = False
 
     async def async_added_to_hass(self) -> None:
         """Handle entity which will be added."""
         await super().async_added_to_hass()
         # Schedule the startup delay
         self.hass.loop.create_task(self._startup_delay_timer())
+        
+        # Setup periodic update
+        self.async_on_remove(
+            async_track_time_interval(self.hass, self._async_update_interval, self._scan_interval)
+        )
+
+    async def _async_update_interval(self, now):
+        """Update the entity on interval."""
+        await self.async_update()
+        self.async_write_ha_state()
 
     async def _startup_delay_timer(self):
         """Wait for startup delay to complete."""
