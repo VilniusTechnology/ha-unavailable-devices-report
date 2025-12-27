@@ -36,9 +36,17 @@ You can configure the integration and manage exclusions directly through the Hom
 1. Go to **Settings > Devices & Services**.
 2. Find the **Unavailable Devices Report** card.
 3. Click **Options**.
-4. You will see two fields:
+4. You can configure the following settings:
     - **Excluded Devices**: Select entire devices to ignore.
     - **Excluded Entities**: Select specific entities to ignore.
+    - **Scan Interval**: How often the sensor updates (default: 30 seconds).
+    - **Logging Level**: Set specific logging level for this component (e.g., DEBUG for troubleshooting).
+
+### 🛡️ Strict Mode & Device Identification
+To prevent false positives, this integration uses a **Strict Mode** logic for devices:
+- A **Device** is considered unavailable ONLY if **ALL** of its entities are unavailable.
+- If even one entity in a device is still active (e.g., a "sleep mode" sensor), the device is considered **active** and will not be reported, though individual unavailable entities might still be listed as "Standalone" if they don't map clearly.
+- **Diagnostic** and **Configuration** entities are ignored by default and do not affect this logic.
 
 Alternatively, you can still use `configuration.yaml` (legacy support):
 
@@ -78,7 +86,6 @@ A new sensor `sensor.unavailable_devices_report` will be created.
 | Attribute | Description |
 |-----------|-------------|
 | `count` | Number of unavailable devices and standalone entities. |
-| `report_summary` | Full Markdown report of all unavailable items with duration. |
 | `devices_report` | Markdown report of only unavailable **devices**. |
 | `entities_report` | Markdown report of only standalone **entities**. |
 | `excluded_devices` | List of names of devices currently excluded. |
@@ -88,36 +95,41 @@ A new sensor `sensor.unavailable_devices_report` will be created.
 
 ### Dashboard Card Examples
 
+> [!TIP]
+> **Use the Manual Card**: When adding these cards to your dashboard, select **Manual** from the card picker and paste the YAML code below directly. This is the easiest method.
+
 #### 1. Standard Report (Unlimited Size)
 Because Home Assistant has a database limit, large reports are split into pages. Use this template to stitch them together:
 
 ```yaml
 type: markdown
-content: >
-  {{ state_attr('sensor.unavailable_devices_report', 'report_page_1') }}
-  {{ state_attr('sensor.unavailable_devices_report', 'report_page_2') or '' }}
-  {{ state_attr('sensor.unavailable_devices_report', 'report_page_3') or '' }}
-  {{ state_attr('sensor.unavailable_devices_report', 'report_page_4') or '' }}
+content: |
+  {% for i in range(1, state_attr('sensor.unavailable_devices_report', 'devices_pages') | int(default=1) + 1) %}
+  {{ state_attr('sensor.unavailable_devices_report', 'devices_page_' ~ i) or '' }}
+  {% endfor %}
+  {% for i in range(1, state_attr('sensor.unavailable_devices_report', 'entities_pages') | int(default=1) + 1) %}
+  {{ state_attr('sensor.unavailable_devices_report', 'entities_page_' ~ i) or '' }}
+  {% endfor %}
 title: Unavailable Devices
 ```
 
 #### 2. Devices Only
 ```yaml
 type: markdown
-content: >
-  {{ state_attr('sensor.unavailable_devices_report', 'devices_page_1') }}
-  {{ state_attr('sensor.unavailable_devices_report', 'devices_page_2') or '' }}
-  {{ state_attr('sensor.unavailable_devices_report', 'devices_page_3') or '' }}
+content: |
+  {% for i in range(1, state_attr('sensor.unavailable_devices_report', 'devices_pages') | int(default=1) + 1) %}
+  {{ state_attr('sensor.unavailable_devices_report', 'devices_page_' ~ i) or '' }}
+  {% endfor %}
 title: Hardware Issues
 ```
 
 #### 3. Standalone Entities Only
 ```yaml
 type: markdown
-content: >
-  {{ state_attr('sensor.unavailable_devices_report', 'entities_page_1') }}
-  {{ state_attr('sensor.unavailable_devices_report', 'entities_page_2') or '' }}
-  {{ state_attr('sensor.unavailable_devices_report', 'entities_page_3') or '' }}
+content: |
+  {% for i in range(1, state_attr('sensor.unavailable_devices_report', 'entities_pages') | int(default=1) + 1) %}
+  {{ state_attr('sensor.unavailable_devices_report', 'entities_page_' ~ i) or '' }}
+  {% endfor %}
 title: Entity Issues
 ```
 
@@ -131,10 +143,45 @@ conditions:
     state_not: "0"
 card:
   type: markdown
-  content: >
-    {{ state_attr('sensor.unavailable_devices_report', 'report_page_1') }}
-    {{ state_attr('sensor.unavailable_devices_report', 'report_page_2') or '' }}
+  content: |
+    {% for i in range(1, state_attr('sensor.unavailable_devices_report', 'devices_pages') | int(default=1) + 1) %}
+    {{ state_attr('sensor.unavailable_devices_report', 'devices_page_' ~ i) or '' }}
+    {% endfor %}
+    {% for i in range(1, state_attr('sensor.unavailable_devices_report', 'entities_pages') | int(default=1) + 1) %}
+    {{ state_attr('sensor.unavailable_devices_report', 'entities_page_' ~ i) or '' }}
+    {% endfor %}
   title: ⚠️ Service Alert
+```
+
+#### 5. Report with Refresh Button
+Combines the report with a manual refresh button using a vertical stack.
+
+```yaml
+type: vertical-stack
+cards:
+  - type: markdown
+    content: |
+      {% for i in range(1, state_attr('sensor.unavailable_devices_report', 'devices_pages') | int(default=1) + 1) %}
+      {{ state_attr('sensor.unavailable_devices_report', 'devices_page_' ~ i) or '' }}
+      {% endfor %}
+    title: Unavailable Devices
+  - type: markdown
+    content: |
+      {% for i in range(1, state_attr('sensor.unavailable_devices_report', 'entities_pages') | int(default=1) + 1) %}
+      {{ state_attr('sensor.unavailable_devices_report', 'entities_page_' ~ i) or '' }}
+      {% endfor %}
+    title: Unavailable Entities
+  - type: entities
+    entities:
+      - type: button
+        name: Refresh Report
+        icon: mdi:refresh
+        action_name: Refresh
+        tap_action:
+          action: call-service
+          service: homeassistant.update_entity
+          target:
+            entity_id: sensor.unavailable_devices_report
 ```
 
 ## Automations
@@ -159,7 +206,7 @@ automation:
 *Note: The `unavailable_entity_ids` list is capped at 300 items to prevent database issues.*
 
 ### Manual Update (On Request)
-By default, the sensor updates every 30 seconds. To force an update immediately (e.g., via an automation or button), use the `homeassistant.update_entity` service:
+The sensor updates periodically based on your **Scan Interval** setting. To force an update immediately (e.g., via an automation or button), use the `homeassistant.update_entity` service:
 
 ```yaml
 service: homeassistant.update_entity
@@ -168,9 +215,18 @@ target:
 ```
 
 ## Debugging
-If you need to troubleshoot why devices are not showing up or are showing up incorrectly, you can enable debug logging for this component.
+If you need to troubleshoot why devices are not showing up or are showing up incorrectly, you can enable debug logging for this component directly in the UI:
 
-Add the following to your `configuration.yaml`:
+1. Go to **Settings > Devices & Services**.
+2. Find the **Unavailable Devices Report** card.
+3. Click **Options**.
+4. Change **Logging Level** to **DEBUG**.
+5. Click **Submit**.
+
+After changing the level, check the logs in **Settings > System > Logs** to see detailed information about which entities are being detected and how they are being grouped.
+
+### Legacy Debugging (YAML)
+Alternatively, you can still use `configuration.yaml`:
 
 ```yaml
 logger:

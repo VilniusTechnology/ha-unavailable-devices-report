@@ -7,7 +7,7 @@ import asyncio
 from homeassistant.components.sensor import PLATFORM_SCHEMA, SensorEntity
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.const import CONF_EXCLUDE
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant, callback, CoreState
 from homeassistant.helpers import config_validation as cv, device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
@@ -58,7 +58,14 @@ class UnavailableDevicesSensor(SensorEntity):
         self._yaml_exclusions = yaml_exclusions or []
         self._config_entry = config_entry
         self._attr_native_value = 0
-        self._attr_extra_state_attributes = {}
+        self._attr_extra_state_attributes = {
+            "report_page_1": "✅ **System Initializing...**\nPlease wait ~60s for the first report.",
+            "report_pages": 1,
+            "devices_page_1": "✅ **System Initializing...**", 
+            "devices_pages": 1,
+            "entities_page_1": "✅ **System Initializing...**",
+            "entities_pages": 1,
+        }
         self._startup_delay_complete = False
         
         if config_entry:
@@ -91,7 +98,12 @@ class UnavailableDevicesSensor(SensorEntity):
 
     async def _startup_delay_timer(self):
         """Wait for startup delay to complete."""
-        await asyncio.sleep(60)
+        if self.hass.state == CoreState.running:
+            _LOGGER.debug("Home Assistant is already running. Skipping startup delay.")
+        else:
+            _LOGGER.debug("Waiting 60s for Home Assistant startup...")
+            await asyncio.sleep(60)
+            
         self._startup_delay_complete = True
         await self.async_update()
         self.async_write_ha_state()
@@ -189,10 +201,13 @@ class UnavailableDevicesSensor(SensorEntity):
         # Process Report
         devices = {}         # { device_id: {name, duration} }
         standalone = []      # [{entity_id, duration}, ...]
+        
+        # 1. Collect Valid Candidates
+        candidate_items = [] 
         candidate_device_ids = set()
         candidate_device_info = {} # { device_id: {name, duration} }
-        count = 0
-        
+        count = 0 
+
         excluded_dev_ids = self.excluded_device_ids
         excluded_ent_ids = self.excluded_entity_ids
         
@@ -220,10 +235,13 @@ class UnavailableDevicesSensor(SensorEntity):
                 candidate_device_ids.add(device_id)
                 if device_id not in candidate_device_info:
                     candidate_device_info[device_id] = {"name": device_name, "duration": duration}
+                candidate_items.append(item)
             else:
                 standalone.append({"entity": entity, "duration": duration})
         
-        # Verify candidate devices and Handle Partial Failures
+        # 2. Identify Full Device Failures
+        full_failure_device_ids = set()
+        
         for device_id in candidate_device_ids:
             # Get all entities for this device
             device_entries = er.async_entries_for_device(ent_reg, device_id)
@@ -244,16 +262,23 @@ class UnavailableDevicesSensor(SensorEntity):
                 if state and state.state in ["unavailable", "unknown"]:
                     unavailable_entities_count += 1
             
-            if unavailable_entities_count > 0:
-                info = candidate_device_info[device_id]
-                # STRICT MODE: Only report if ALL entities of the device are unavailable
-                if unavailable_entities_count == total_entities:
-                     # Full Device Failure
-                     devices[device_id] = info
-                     count += 1
-                else:
-                    # Partial Device Failure - IGNORE
-                    _LOGGER.debug(f"Ignoring partial active device {info['name']}: {unavailable_entities_count}/{total_entities} entities unavailable")
+            if total_entities > 0 and unavailable_entities_count == total_entities:
+                 # Full Device Failure
+                 full_failure_device_ids.add(device_id)
+                 devices[device_id] = candidate_device_info[device_id]
+                 count += 1
+            else:
+                # Partial Device Failure - Device is technically "alive"
+                _LOGGER.debug(f"Device {candidate_device_info[device_id]['name']} is partially active ({unavailable_entities_count}/{total_entities} unavailable).")
+
+        # 3. Process Items based on Device Status
+        for item in candidate_items:
+            device_id = item['device_id']
+            if device_id in full_failure_device_ids:
+                continue # Already reported as a Device
+            
+            # If device is NOT fully unavailable, report the entity separately
+            standalone.append({"entity": item['entity'], "duration": item['duration']})
 
         count += len(standalone)
 
@@ -312,7 +337,7 @@ class UnavailableDevicesSensor(SensorEntity):
         self._attr_native_value = count
         self._attr_extra_state_attributes = {
             "count": count,
-            "report_summary": format_markdown(devices, standalone),
+            # "report_summary": format_markdown(devices, standalone), # REMOVED to save DB space
             "devices_report": format_devices_only(devices),
             "entities_report": format_entities_only(standalone),
             "unavailable_devices": [{"device_id": k, "name": v["name"], "duration": v["duration"]} for k, v in devices.items()],
@@ -322,9 +347,12 @@ class UnavailableDevicesSensor(SensorEntity):
             "excluded_entities": excluded_ent_ids,
         }
 
-        self._truncate_attributes()
+        try:
+            self._truncate_attributes()
+        except Exception as e:
+            _LOGGER.error(f"Failed to truncate/paginate attributes: {e}", exc_info=True)
+            self._attr_extra_state_attributes["error"] = f"Truncation failed: {str(e)}"
 
-        
         if count == 0:
             self._attr_icon = "mdi:check-circle"
         else:
@@ -341,12 +369,26 @@ class UnavailableDevicesSensor(SensorEntity):
         
         pages = []
         if content:
-            encoded_content = content.encode('utf-8')
-            total_len = len(encoded_content)
+            lines = content.split('\n')
+            current_page = ""
             
-            for i in range(0, total_len, MAX_TEXT_BYTES):
-                chunk = encoded_content[i:i + MAX_TEXT_BYTES].decode('utf-8', errors='ignore')
-                pages.append(chunk)
+            for line in lines:
+                line_full = line + "\n"
+                
+                # Check if adding this line exceeds the limit
+                if len((current_page + line_full).encode('utf-8')) > MAX_TEXT_BYTES:
+                    if current_page:
+                        pages.append("\n" + current_page)
+                        current_page = line_full
+                    else:
+                        # Single line exceeds limit, add it anyway
+                        pages.append("\n" + line_full)
+                        current_page = ""
+                else:
+                    current_page += line_full
+            
+            if current_page:
+                pages.append("\n" + current_page)
 
         # Store pages and count
         self._attr_extra_state_attributes[count_attr] = len(pages)
@@ -384,15 +426,15 @@ class UnavailableDevicesSensor(SensorEntity):
 
         # Truncate flat list too (generous limit)
         if len(ent_ids) > 100:
-             self._attr_extra_state_attributes["unavailable_entity_ids"] = ent_ids[:100]
+            self._attr_extra_state_attributes["unavailable_entity_ids"] = ent_ids[:100]
 
         # 2. Paginate Markdown Reports
-        report_summary = self._attr_extra_state_attributes.get("report_summary", "")
+        # report_summary = self._attr_extra_state_attributes.get("report_summary", "")
         devices_report = self._attr_extra_state_attributes.get("devices_report", "")
         entities_report = self._attr_extra_state_attributes.get("entities_report", "")
 
-        pgs_total = self._paginate_attribute("report_summary", report_summary, "report_page", "report_pages")
+        # pgs_total = self._paginate_attribute("report_summary", report_summary, "report_page", "report_pages")
         pgs_dev = self._paginate_attribute("devices_report", devices_report, "devices_page", "devices_pages")
         pgs_ent = self._paginate_attribute("entities_report", entities_report, "entities_page", "entities_pages")
 
-        _LOGGER.debug(f"Reports split: Total={pgs_total}, Devs={pgs_dev}, Ents={pgs_ent} pages")
+        _LOGGER.debug(f"Reports split: Devs={pgs_dev}, Ents={pgs_ent} pages")

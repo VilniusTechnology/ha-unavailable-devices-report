@@ -7,6 +7,8 @@ from homeassistant.core import HomeAssistant
 import logging
 from .const import DOMAIN, CONF_LOGGING_LEVEL
 
+_LOGGER = logging.getLogger(__name__)
+
 PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

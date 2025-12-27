@@ -46,6 +46,24 @@
 **Solution:**
 - This confirms the sensor is not loaded. See issue #1.
 
+### 5. Duplicate Entities (`_2`) or "Ghost" Entities
+**Symptoms:**
+- You see `sensor.unavailable_devices_report_2`.
+- You cannot delete `sensor.unavailable_devices_report` even though you removed the config.
+- Developer Tools shows `restored: true` for the entity.
+
+**Solution:**
+1. **Identify the Ghost:** If an entity has `restored: true` in its attributes (Developer Tools > States), it means Home Assistant remembers it from a past session, but it's no longer being provided by an integration.
+2. **Delete it:**
+   - Go to **Settings > Devices & Services > Entities**.
+   - Search for `unavailable_devices_report`.
+   - Click the "Ghost" entity (the one without `_2` that is "Unavailable").
+   - Click **Delete Selected**.
+3. **Rename the New One:**
+   - Click on `sensor.unavailable_devices_report_2`.
+   - Change the **Entity ID** to `sensor.unavailable_devices_report`.
+   - Restart (optional, but good practice).
+
 ## Getting more help
 If none of the above solves your issue, please open an issue on GitHub with:
 1. Your `configuration.yaml` snippet for this sensor.
