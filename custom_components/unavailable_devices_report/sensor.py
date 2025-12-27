@@ -65,9 +65,11 @@ class UnavailableDevicesSensor(SensorEntity):
             self._attr_unique_id = f"{config_entry.entry_id}"
             interval = config_entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
             self._scan_interval = timedelta(seconds=interval)
+            _LOGGER.debug(f"Initialized with config_entry. Interval: {interval}s ({self._scan_interval}). Options: {config_entry.options}")
         else:
             self._attr_unique_id = "unavailable_devices_report_sensor"
             self._scan_interval = timedelta(seconds=DEFAULT_SCAN_INTERVAL)
+            _LOGGER.debug(f"Initialized with YAML/Default. Interval: {DEFAULT_SCAN_INTERVAL}s")
             
         self._attr_should_poll = False
 
@@ -356,7 +358,7 @@ class UnavailableDevicesSensor(SensorEntity):
     def _truncate_attributes(self):
         """Split attributes to avoid database overflow."""
         # 1. Truncate Raw Lists
-        limit = 50
+        limit = 30
         devs = self._attr_extra_state_attributes.get("unavailable_devices", [])
         ents = self._attr_extra_state_attributes.get("unavailable_entities", [])
         ent_ids = self._attr_extra_state_attributes.get("unavailable_entity_ids", [])
@@ -369,9 +371,20 @@ class UnavailableDevicesSensor(SensorEntity):
             self._attr_extra_state_attributes["unavailable_entities"] = ents[:limit] 
             self._attr_extra_state_attributes["unavailable_entities_truncated"] = len(ents) - limit
 
+        # Truncate excluded lists (they can be huge)
+        ex_devs = self._attr_extra_state_attributes.get("excluded_devices", [])
+        if len(ex_devs) > limit:
+            self._attr_extra_state_attributes["excluded_devices"] = ex_devs[:limit]
+            self._attr_extra_state_attributes["excluded_devices_truncated"] = len(ex_devs) - limit
+
+        ex_ents = self._attr_extra_state_attributes.get("excluded_entities", [])
+        if len(ex_ents) > limit:
+            self._attr_extra_state_attributes["excluded_entities"] = ex_ents[:limit]
+            self._attr_extra_state_attributes["excluded_entities_truncated"] = len(ex_ents) - limit
+
         # Truncate flat list too (generous limit)
-        if len(ent_ids) > 300:
-             self._attr_extra_state_attributes["unavailable_entity_ids"] = ent_ids[:300]
+        if len(ent_ids) > 100:
+             self._attr_extra_state_attributes["unavailable_entity_ids"] = ent_ids[:100]
 
         # 2. Paginate Markdown Reports
         report_summary = self._attr_extra_state_attributes.get("report_summary", "")

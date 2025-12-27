@@ -3,7 +3,7 @@
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 
 
-[![Validate HACS](https://github.com/lukas-mikelionis/unavailable-devices-report/actions/workflows/validate.yaml/badge.svg)](https://github.com/lukas-mikelionis/unavailable-devices-report/actions/workflows/validate.yaml)
+[![Validate HACS](https://github.com/VilniusTechnology/ha-unavailable-devices-report/actions/workflows/validate.yaml/badge.svg)](https://github.com/VilniusTechnology/ha-unavailable-devices-report/actions/workflows/validate.yaml)
 
 A custom component that provides a sensor reporting all unavailable or unknown entities in Home Assistant, grouped by device.
 

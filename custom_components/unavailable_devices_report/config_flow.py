@@ -8,6 +8,9 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import selector
+import logging
+
+_LOGGER = logging.getLogger(__name__)
 
 from .const import DOMAIN, CONF_EXCLUDED_DEVICES, CONF_EXCLUDED_ENTITIES, CONF_LOGGING_LEVEL, CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
 
@@ -49,7 +52,7 @@ class UnavailableDevicesReportOptionsFlowHandler(config_entries.OptionsFlow):
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""
-        self.config_entry = config_entry
+        self._config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -58,25 +61,26 @@ class UnavailableDevicesReportOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        return self.async_show_form(
-            step_id="init",
-            data_schema=vol.Schema(
+        errors = {}
+        
+        try:
+            schema = vol.Schema(
                 {
                     vol.Optional(
                         CONF_EXCLUDED_DEVICES,
-                        default=self.config_entry.options.get(CONF_EXCLUDED_DEVICES, []),
+                        default=self._config_entry.options.get(CONF_EXCLUDED_DEVICES, []),
                     ): selector.DeviceSelector(
                         selector.DeviceSelectorConfig(multiple=True)
                     ),
                     vol.Optional(
                         CONF_EXCLUDED_ENTITIES,
-                        default=self.config_entry.options.get(CONF_EXCLUDED_ENTITIES, []),
+                        default=self._config_entry.options.get(CONF_EXCLUDED_ENTITIES, []),
                     ): selector.EntitySelector(
                         selector.EntitySelectorConfig(multiple=True)
                     ),
                     vol.Optional(
                         CONF_LOGGING_LEVEL,
-                        default=self.config_entry.options.get(CONF_LOGGING_LEVEL, "INFO"),
+                        default=self._config_entry.options.get(CONF_LOGGING_LEVEL, "INFO"),
                     ): selector.SelectSelector(
                         selector.SelectSelectorConfig(
                             options=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
@@ -85,7 +89,7 @@ class UnavailableDevicesReportOptionsFlowHandler(config_entries.OptionsFlow):
                     ),
                     vol.Optional(
                         CONF_SCAN_INTERVAL,
-                        default=self.config_entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+                        default=self._config_entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
                     ): selector.NumberSelector(
                         selector.NumberSelectorConfig(
                             min=30,
@@ -96,5 +100,16 @@ class UnavailableDevicesReportOptionsFlowHandler(config_entries.OptionsFlow):
                         )
                     ),
                 }
-            ),
+            )
+        except Exception as e:
+            _LOGGER.error("Failed to build options schema: %s", e)
+            return self.async_show_form(
+                step_id="init",
+                errors={"base": str(e)},
+            )
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=schema,
+            errors=errors,
         )
