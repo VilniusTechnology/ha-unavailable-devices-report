@@ -247,9 +247,8 @@ class UnavailableDevicesSensor(SensorEntity):
                 candidate_device_ids.add(device_id)
                 if device_id not in candidate_device_info:
                     candidate_device_info[device_id] = {"name": device_name, "duration": duration}
-                candidate_items.append(item)
-            else:
-                standalone.append({"entity": entity, "duration": duration, "is_registered": item.get("is_registered", False)})
+            
+            candidate_items.append(item)
         
         # 2. Identify Full Device Failures
         full_failure_device_ids = set()
