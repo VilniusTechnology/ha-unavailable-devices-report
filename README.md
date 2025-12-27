@@ -181,8 +181,9 @@ logger:
 
 After restarting Home Assistant, check the logs in **Settings -> System -> Logs** to see detailed information about which entities are being detected and how they are being grouped.
 
-## Support
+## ☕ Support
 
-If you find this integration useful and would like to support its development, you can buy me a coffee!
+If you find this integration useful and want to support its development:
 
-[![Buy Me A Coffee](https://img.shields.io/badge/buy%20me%20a%20coffee-donate-yellow.svg)](https://buymeacoffee.com/vilnius.technology)
+<a href="https://buymeacoffee.com/vilnius.technology" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
+

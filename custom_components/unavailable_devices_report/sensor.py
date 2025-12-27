@@ -334,7 +334,7 @@ class UnavailableDevicesSensor(SensorEntity):
 
     def _paginate_attribute(self, attr_name: str, content: str, page_prefix: str, count_attr: str):
         """Split content into pages and store in attributes."""
-        MAX_TEXT_BYTES = 10000
+        MAX_TEXT_BYTES = 2048
         
         # Remove original massive attribute
         self._attr_extra_state_attributes.pop(attr_name, None)
@@ -358,7 +358,7 @@ class UnavailableDevicesSensor(SensorEntity):
     def _truncate_attributes(self):
         """Split attributes to avoid database overflow."""
         # 1. Truncate Raw Lists
-        limit = 30
+        limit = 20
         devs = self._attr_extra_state_attributes.get("unavailable_devices", [])
         ents = self._attr_extra_state_attributes.get("unavailable_entities", [])
         ent_ids = self._attr_extra_state_attributes.get("unavailable_entity_ids", [])
