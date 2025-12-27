@@ -1,0 +1,12 @@
+{
+  "domain": "unavailable_devices_report",
+  "name": "Unavailable Devices Report",
+  "codeowners": [],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/lukas-mikelionis/unavailable-devices-report",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/lukas-mikelionis/unavailable-devices-report/issues",
+  "requirements": [],
+  "version": "1.0.0"
+}

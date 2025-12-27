@@ -1,0 +1,88 @@
+from __future__ import annotations
+
+from typing import Any
+
+import voluptuous as vol
+
+from homeassistant import config_entries
+from homeassistant.core import callback
+from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers import selector
+
+from .const import DOMAIN, CONF_EXCLUDED_DEVICES, CONF_EXCLUDED_ENTITIES, CONF_LOGGING_LEVEL
+
+class UnavailableDevicesReportConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for Unavailable Devices Report."""
+
+    VERSION = 1
+
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Handle the initial step."""
+        if self._async_current_entries():
+            return self.async_abort(reason="single_instance_allowed")
+
+        if user_input is not None:
+            return self.async_create_entry(title="Unavailable Devices Report", data=user_input)
+
+        return self.async_show_form(step_id="user")
+
+    async def async_step_import(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+        """Handle import from YAML."""
+        if self._async_current_entries():
+            return self.async_abort(reason="single_instance_allowed")
+        
+        return self.async_create_entry(title="Unavailable Devices Report", data=user_input or {})
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> UnavailableDevicesReportOptionsFlowHandler:
+        """Get the options flow for this handler."""
+        return UnavailableDevicesReportOptionsFlowHandler(config_entry)
+
+
+class UnavailableDevicesReportOptionsFlowHandler(config_entries.OptionsFlow):
+    """Handle options flow for Unavailable Devices Report."""
+
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """Initialize options flow."""
+        self.config_entry = config_entry
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Manage the options."""
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_EXCLUDED_DEVICES,
+                        default=self.config_entry.options.get(CONF_EXCLUDED_DEVICES, []),
+                    ): selector.DeviceSelector(
+                        selector.DeviceSelectorConfig(multiple=True)
+                    ),
+                    vol.Optional(
+                        CONF_EXCLUDED_ENTITIES,
+                        default=self.config_entry.options.get(CONF_EXCLUDED_ENTITIES, []),
+                    ): selector.EntitySelector(
+                        selector.EntitySelectorConfig(multiple=True)
+                    ),
+                    vol.Optional(
+                        CONF_LOGGING_LEVEL,
+                        default=self.config_entry.options.get(CONF_LOGGING_LEVEL, "INFO"),
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                        )
+                    ),
+                }
+            ),
+        )
