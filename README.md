@@ -1,6 +1,6 @@
 # Unavailable Devices Report for Home Assistant
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+[![hacs_badge](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://github.com/hacs/integration)
 
 
 [![Validate HACS](https://github.com/VilniusTechnology/ha-unavailable-devices-report/actions/workflows/validate.yaml/badge.svg)](https://github.com/VilniusTechnology/ha-unavailable-devices-report/actions/workflows/validate.yaml)
